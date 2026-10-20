@@ -1,0 +1,18 @@
+# Secrets / local config
+.env
+
+# Recon output — NEVER commit (screenshots, crawl data, findings)
+data/
+
+# Scope files are target-specific and out of scope for the repo.
+# Only the example is tracked.
+scope/*.txt
+!scope/example.txt
+
+# Python
+__pycache__/
+*.pyc
+
+# OS cruft
+.DS_Store
+Thumbs.db

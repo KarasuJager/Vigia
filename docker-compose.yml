@@ -1,0 +1,25 @@
+services:
+  obscura:
+    image: h4ckf0r0day/obscura
+    command: ["serve", "--port", "9222", "--workers", "2"]
+    expose:
+      - "9222"            # internal network only — NOT published to the host
+    restart: unless-stopped
+    # Security note: we deliberately do NOT run with --stealth (no anti-detection /
+    # evasion) and do NOT publish 9222 to the host. If you ever add a `ports:` mapping,
+    # set OBSCURA_CDP_TOKEN and bind to 127.0.0.1 only.
+
+  recon:
+    build: .
+    working_dir: /app
+    depends_on:
+      - obscura
+    env_file: .env
+    # Share Obscura's network namespace so the CDP server (bound to 127.0.0.1
+    # inside Obscura) is reachable as localhost — no 0.0.0.0 bind, no token needed.
+    network_mode: "service:obscura"
+    volumes:
+      - ./scope:/scope:ro
+      - ./data:/data
+    # One-shot: you invoke it on demand with `docker compose run`.
+    # Default (no args) prints usage.

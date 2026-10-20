@@ -1,0 +1,3 @@
+# One root domain per line. Lines starting with # are ignored.
+# Only put domains that are IN SCOPE for the program you're testing.
+example.com
