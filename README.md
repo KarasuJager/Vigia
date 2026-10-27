@@ -121,9 +121,17 @@ misuse or for any damage caused. See [`LICENSE`](LICENSE).
 - JS files are fetched server-side with the **same identified UA/header** as the crawl.
 - One-shot by design: every run is timestamped and independent.
 
+## Beyond recon: agentic triage
+
+Vigía's output is built to feed straight into **Tercios-agents**, a companion
+agentic framework that turns this recon into prioritised, agent-driven hunting:
+it scope-guards and de-duplicates the attack surface, routes endpoints to
+specialist agents (IDOR/BOLA, auth, business-logic, WAF-bypass…), and keeps a
+mandatory human ship-gate so nothing is reported without review.
+
 ---
 
 Built by [Manuel Miguel Fernández-Gallego Olivares](https://www.linkedin.com/in/manuel-miguel-olivares)
 · Offensive Security Engineer · part of a small toolkit alongside
-[SONDA](https://github.com/KarasuJager) (HTTP differential testing) and bb-alert
-(new-program alerting).
+[SONDA](https://github.com/KarasuJager) (HTTP differential testing), bb-alert
+(new-program alerting), and **Tercios-agents** (agentic AI layer for triage & hunting).

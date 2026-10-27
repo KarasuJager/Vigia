@@ -1,0 +1,5 @@
+# Los scripts deben tener finales de línea LF aunque se clonen en Windows:
+# si git los convierte a CRLF, bash dentro del contenedor Docker falla
+# ("set: invalid option name", pipefail, etc.).
+*.sh text eol=lf
+*.py text eol=lf

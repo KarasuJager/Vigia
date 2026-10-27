@@ -78,7 +78,7 @@ echo "[*] Crawl + screenshot + JS extraction (Obscura via CDP)"
 python3 /app/scripts/crawl_extract.py \
   --urls "$OUT/alive_urls.txt" \
   --out "$OUT" \
-  --ws "${OBSCURA_WS:-ws://obscura:9222}" \
+  --ws "${OBSCURA_WS:-ws://localhost:9222}" \
   --handle "$HANDLE" \
   --contact "$CONTACT" \
   --concurrency "$CONCURRENCY" \
