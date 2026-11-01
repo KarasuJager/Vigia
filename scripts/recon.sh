@@ -128,7 +128,16 @@ python3 /app/scripts/crawl_extract.py \
 ln -sfn "$OUT" "/data/${PROGRAM}/latest"
 
 echo
-echo "[+] Recon complete. Starting Nuclei scan (critical + high)..."
+echo "[+] Recon complete. Starting JS Deep Analysis..."
+echo
+
+python3 /app/scripts/js_analyze.py "$OUT" \
+  --linkfinder /opt/LinkFinder/linkfinder.py \
+  --secretfinder /opt/SecretFinder/SecretFinder.py \
+  --jsluice /usr/local/bin/jsluice
+
+echo
+echo "[+] Starting Nuclei scan (critical + high)..."
 echo
 
 mkdir -p "$OUT/findings/nuclei"
@@ -145,15 +154,6 @@ nuclei -l "$OUT/alive_urls.txt" \
 
 NUCLEI_COUNT=$(wc -l < "$OUT/findings/nuclei/results.txt" 2>/dev/null || echo 0)
 echo "    -> $NUCLEI_COUNT findings (critical + high)"
-
-echo
-echo "[+] Starting JS Deep Analysis..."
-echo
-
-python3 /app/scripts/js_analyze.py "$OUT" \
-  --linkfinder /opt/LinkFinder/linkfinder.py \
-  --secretfinder /opt/SecretFinder/SecretFinder.py \
-  --jsluice /usr/local/bin/jsluice
 
 echo
 echo "============================================"
