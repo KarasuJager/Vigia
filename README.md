@@ -52,7 +52,7 @@ subfinder + amass (passive)
 |-------|------|
 | Passive subdomain enum | [`subfinder`](https://github.com/projectdiscovery/subfinder) + [`amass`](https://github.com/owasp-amass/amass) |
 | Live-host probing | [`httpx`](https://github.com/projectdiscovery/httpx) |
-| Render / screenshot / crawl | headless browser over CDP (Playwright client) |
+| Render / screenshot / crawl | [Obscura](https://hub.docker.com/r/h4ckf0r0day/obscura) — headless Chromium via CDP, renders SPAs, takes full-page screenshots, intercepts all network resources |
 | Basic extraction | LinkFinder-style endpoint regex + secret patterns |
 | JS desminification | [jsbeautifier](https://pypi.org/project/jsbeautifier/) |
 | Endpoint extraction | [LinkFinder](https://github.com/dark-warlord14/LinkFinder) |
@@ -160,10 +160,25 @@ permission to assess. Before you point it at anything:
 You are responsible for how you use this tool. The author assumes no liability for
 misuse or for any damage caused. See [`LICENSE`](LICENSE).
 
+## Obscura — the rendering engine
+
+Vigía uses [Obscura](https://hub.docker.com/r/h4ckf0r0day/obscura) as its headless
+browser. Obscura runs a Chromium instance accessible over CDP (Chrome DevTools Protocol),
+and Vigía's crawl driver connects to it via Playwright to:
+
+- **Render JavaScript-heavy pages** (React, Vue, Angular SPAs) — sees the real DOM, not raw HTML
+- **Take full-page screenshots** of every live host
+- **Intercept all network resources** the page loads (JS, CSS, API calls, fonts, images)
+- **Extract script sources** and link targets from the rendered page
+
+Obscura runs as a separate Docker service (`docker compose up -d obscura`) and shares
+its network namespace with the recon container, so CDP is reachable at `localhost:9222`
+without exposing the port to the host.
+
 ## Design notes
 
-- The headless browser runs **without** `--stealth` and is **not** published to the
-  host. If you ever expose the CDP port, bind it to `127.0.0.1` and put a token on it.
+- Obscura runs **without** `--stealth` and its CDP port is **not** published to the
+  host. If you ever expose it, bind to `127.0.0.1` and set `OBSCURA_CDP_TOKEN`.
 - JS files are fetched server-side with the **same identified UA/header** as the crawl.
 - JSLuice is compiled from source in a multi-stage Docker build (Go 1.22) — no
   prebuilt binary needed.
