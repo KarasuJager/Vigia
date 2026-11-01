@@ -65,6 +65,7 @@ echo ""
 # ---- Recopilar URLs con parámetros ----
 echo "[*] Recopilando URLs con parámetros..."
 
+mkdir -p "$RUN_PATH/findings/xss"
 URLS_FILE="$RUN_PATH/findings/xss/urls-with-params.txt"
 : > "$URLS_FILE"
 
