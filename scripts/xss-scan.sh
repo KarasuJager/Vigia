@@ -9,16 +9,41 @@ set -euo pipefail
 #  no basta.
 #
 #  Uso:
-#    docker compose run --rm recon /app/scripts/xss-scan.sh <run-path> [nivel]
+#    docker compose run --rm recon xss <run-path> [nivel] [--payload "..."] [--payloads-file /path]
 #
 #  Ejemplos:
-#    /app/scripts/xss-scan.sh /data/target/latest           # los 3 niveles
-#    /app/scripts/xss-scan.sh /data/target/latest 1          # solo nivel 1
-#    /app/scripts/xss-scan.sh /data/target/latest 2          # nivel 1 + 2
+#    recon xss /data/target/latest                              # 3 niveles, payloads default
+#    recon xss /data/target/latest 1                            # solo nivel 1
+#    recon xss /data/target/latest --payload "<svg onload=alert(1)>"
+#    recon xss /data/target/latest --payloads-file /scope/mis-payloads.txt
 # ============================================================
 
-RUN_PATH="${1:?Uso: xss-scan.sh <run-path> [nivel-max]}"
-MAX_LEVEL="${2:-3}"
+# ---- Parse arguments ----
+RUN_PATH=""
+MAX_LEVEL="3"
+CUSTOM_PAYLOAD=""
+PAYLOADS_FILE=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --payload)
+            CUSTOM_PAYLOAD="$2"; shift 2 ;;
+        --payloads-file)
+            PAYLOADS_FILE="$2"; shift 2 ;;
+        [1-3])
+            MAX_LEVEL="$1"; shift ;;
+        *)
+            if [ -z "$RUN_PATH" ]; then
+                RUN_PATH="$1"
+            fi
+            shift ;;
+    esac
+done
+
+if [ -z "$RUN_PATH" ]; then
+    echo "[!] Uso: xss-scan.sh <run-path> [nivel] [--payload '...'] [--payloads-file /path]"
+    exit 1
+fi
 
 if [ ! -d "$RUN_PATH" ]; then
     echo "[!] Run path not found: $RUN_PATH"
@@ -86,6 +111,21 @@ if [ -n "$WAF_DETECTED" ]; then
 else
     echo "[*] No se detectó WAF"
 fi
+
+# Build custom payload flags for dalfox
+DALFOX_CUSTOM=""
+if [ -n "$CUSTOM_PAYLOAD" ]; then
+    DALFOX_CUSTOM="--custom-payload $CUSTOM_PAYLOAD"
+    echo "[*] Custom payload: $CUSTOM_PAYLOAD"
+fi
+if [ -n "$PAYLOADS_FILE" ]; then
+    if [ -f "$PAYLOADS_FILE" ]; then
+        DALFOX_CUSTOM="--custom-payload-file $PAYLOADS_FILE"
+        echo "[*] Custom payloads file: $PAYLOADS_FILE ($(wc -l < "$PAYLOADS_FILE") payloads)"
+    else
+        echo "[!] Payloads file not found: $PAYLOADS_FILE"
+    fi
+fi
 echo ""
 
 # ════════════════════════════════════════
@@ -102,6 +142,7 @@ dalfox file "$URLS_FILE" \
     --delay 200 \
     --timeout 10 \
     --only-poc r \
+    $DALFOX_CUSTOM \
     -o "$RUN_PATH/findings/xss/nivel1-results.txt" \
     2>/dev/null || true
 
@@ -135,6 +176,7 @@ dalfox file "$URLS_FILE" \
     --timeout 10 \
     --only-poc r \
     $DALFOX_WAF_FLAG \
+    $DALFOX_CUSTOM \
     --deep-domxss \
     -o "$RUN_PATH/findings/xss/nivel2-results.txt" \
     2>/dev/null || true
@@ -155,10 +197,25 @@ echo "════════════════════════�
 echo " Nivel 3 — qsreplace análisis de reflexión"
 echo "══════════════════════════════════════════"
 
-echo "[*] Probando qué caracteres se reflejan..."
-
 REFLECT_DIR="$RUN_PATH/findings/xss/reflection-analysis"
 mkdir -p "$REFLECT_DIR"
+
+# Si hay payload custom, probarlo directamente con qsreplace
+if [ -n "$CUSTOM_PAYLOAD" ]; then
+    echo "[*] Probando payload custom en todas las URLs..."
+    cat "$URLS_FILE" | qsreplace "$CUSTOM_PAYLOAD" 2>/dev/null \
+        | while read -r url; do
+            BODY=$(curl -s -A "$UA" -H "X-Bug-Bounty: ${HANDLE}" --max-time 10 "$url" 2>/dev/null || true)
+            if echo "$BODY" | grep -qF "$CUSTOM_PAYLOAD" 2>/dev/null; then
+                echo "[REFLECTS CUSTOM] $url"
+            fi
+        done > "$REFLECT_DIR/reflects-custom-payload.txt" 2>/dev/null || true
+    CCOUNT=$(wc -l < "$REFLECT_DIR/reflects-custom-payload.txt" 2>/dev/null || echo 0)
+    echo "    -> $CCOUNT URLs reflejan el payload custom"
+    echo ""
+fi
+
+echo "[*] Probando qué caracteres se reflejan..."
 
 # Probar cada carácter peligroso por separado
 for CHAR_NAME in "lt:<" "gt:>" "quote:\"" "apos:'" "paren:()" "slash:/" "amp:&"; do
