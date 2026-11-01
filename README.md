@@ -99,21 +99,31 @@ data/<program>/<timestamp>/
 ├── alive.txt             httpx output (status, title, tech, ip, content-length)
 ├── alive_urls.txt        live URLs
 ├── screenshots/*.png     full-page screenshots
-├── crawl/<host>.json     links, scripts and every resource the page requested
+├── dom/<host>.html       full rendered DOM snapshot per host
+├── crawl/<host>.json     links, scripts, resources, API responses, forms, storage, WebSockets
 ├── findings/
 │   ├── endpoints.txt      endpoints mined from JS  (-> feed into Burp)
 │   ├── secrets.txt        potential secrets — verify manually
 │   ├── js-raw/            raw JS files downloaded from the target
-│   └── js-analysis/       deep JS analysis output:
-│       ├── beautified/        desminified JS (readable)
-│       ├── builtin-analysis.txt   sinks, auth flows, hidden params, API routes
-│       ├── api-routes.txt     API endpoints found in JS
-│       ├── hidden-params.txt  potential hidden parameters
-│       ├── linkfinder.txt     LinkFinder results
-│       ├── secretfinder.txt   SecretFinder results
-│       ├── retirejs.json      vulnerable libraries
-│       └── jsluice.json       JSLuice URLs + secrets
-└── index.html            visual triage report
+│   ├── js-analysis/       deep JS analysis output:
+│   │   ├── beautified/        desminified JS (readable)
+│   │   ├── builtin-analysis.txt   sinks, auth flows, hidden params, API routes
+│   │   ├── api-routes.txt     API endpoints found in JS
+│   │   ├── hidden-params.txt  potential hidden parameters
+│   │   ├── linkfinder.txt     LinkFinder results
+│   │   ├── secretfinder.txt   SecretFinder results
+│   │   ├── retirejs.json      vulnerable libraries
+│   │   └── jsluice.json       JSLuice URLs + secrets
+│   └── browser-intel/     browser intelligence captured during crawl:
+│       ├── api-responses.json  API/XHR/fetch responses (status, headers, body preview)
+│       ├── api-responses.txt   human-readable API response summary
+│       ├── storage.json        localStorage + sessionStorage per host
+│       ├── storage.txt         human-readable storage dump
+│       ├── websockets.json     WebSocket connections and messages
+│       ├── websockets.txt      human-readable WS summary
+│       ├── forms.json          all forms with fields, actions, methods
+│       └── forms.txt           human-readable form map
+└── index.html            visual triage report (now with browser intel badges)
 data/<program>/latest  ->  symlink to the newest run
 ```
 
