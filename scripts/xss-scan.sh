@@ -163,6 +163,7 @@ echo "════════════════════════�
 echo " Nivel 1 — Dalfox default payloads"
 echo "══════════════════════════════════════════"
 
+touch "$RUN_PATH/findings/xss/nivel1-results.txt" 2>/dev/null || true
 dalfox file "$URLS_FILE" \
     --silence \
     --no-color \
@@ -172,7 +173,7 @@ dalfox file "$URLS_FILE" \
     --only-poc r \
     $DALFOX_CUSTOM \
     -o "$RUN_PATH/findings/xss/nivel1-results.txt" \
-    2>/dev/null || true
+    2>"$RUN_PATH/findings/xss/nivel1-errors.log" || true
 
 N1_COUNT=$(wc -l < "$RUN_PATH/findings/xss/nivel1-results.txt" 2>/dev/null || echo 0)
 echo "    -> $N1_COUNT candidatos encontrados"
@@ -196,6 +197,7 @@ if [ -n "$WAF_DETECTED" ]; then
     DALFOX_WAF_FLAG="--waf-evasion"
 fi
 
+touch "$RUN_PATH/findings/xss/nivel2-results.txt" 2>/dev/null || true
 dalfox file "$URLS_FILE" \
     --silence \
     --no-color \
@@ -207,7 +209,7 @@ dalfox file "$URLS_FILE" \
     $DALFOX_CUSTOM \
     --deep-domxss \
     -o "$RUN_PATH/findings/xss/nivel2-results.txt" \
-    2>/dev/null || true
+    2>"$RUN_PATH/findings/xss/nivel2-errors.log" || true
 
 N2_COUNT=$(wc -l < "$RUN_PATH/findings/xss/nivel2-results.txt" 2>/dev/null || echo 0)
 echo "    -> $N2_COUNT candidatos encontrados"
