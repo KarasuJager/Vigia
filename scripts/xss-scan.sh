@@ -83,9 +83,19 @@ if [ -f "$RUN_PATH/findings/js-analysis/linkfinder.txt" ]; then
     grep '?' "$RUN_PATH/findings/js-analysis/linkfinder.txt" >> "$URLS_FILE" 2>/dev/null || true
 fi
 
-sort -u "$URLS_FILE" -o "$URLS_FILE"
+# Filter: only URLs from target domains (from roots.txt), not third-party (google, cdn, etc.)
+if [ -f "$RUN_PATH/roots.txt" ]; then
+    FILTER_PATTERN=$(paste -sd'|' "$RUN_PATH/roots.txt")
+    grep -E "$FILTER_PATTERN" "$URLS_FILE" | sort -u > "$URLS_FILE.filtered" || true
+    mv "$URLS_FILE.filtered" "$URLS_FILE"
+fi
+
+# Only keep URLs that actually have query parameters
+grep '?' "$URLS_FILE" | sort -u > "$URLS_FILE.params" || true
+mv "$URLS_FILE.params" "$URLS_FILE"
+
 URL_COUNT=$(wc -l < "$URLS_FILE")
-echo "    -> $URL_COUNT URLs con parámetros"
+echo "    -> $URL_COUNT URLs con parámetros (solo target, sin terceros)"
 
 if [ "$URL_COUNT" -eq 0 ]; then
     echo "[!] No hay URLs con parámetros. Nada que escanear."
