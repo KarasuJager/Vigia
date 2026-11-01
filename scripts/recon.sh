@@ -128,7 +128,26 @@ python3 /app/scripts/crawl_extract.py \
 ln -sfn "$OUT" "/data/${PROGRAM}/latest"
 
 echo
-echo "[+] Recon complete. Starting JS Deep Analysis..."
+echo "[+] Recon complete. Starting Nuclei scan (critical + high)..."
+echo
+
+mkdir -p "$OUT/findings/nuclei"
+nuclei -l "$OUT/alive_urls.txt" \
+  -severity critical,high \
+  -t cves/ -t exposed-panels/ -t misconfiguration/ -t default-logins/ \
+  -H "User-Agent: ${UA}" \
+  -H "X-Bug-Bounty: ${HANDLE}" \
+  -rl 25 \
+  -c 10 \
+  -o "$OUT/findings/nuclei/results.txt" \
+  -jsonl -je "$OUT/findings/nuclei/results.jsonl" \
+  -silent 2>/dev/null || true
+
+NUCLEI_COUNT=$(wc -l < "$OUT/findings/nuclei/results.txt" 2>/dev/null || echo 0)
+echo "    -> $NUCLEI_COUNT findings (critical + high)"
+
+echo
+echo "[+] Starting JS Deep Analysis..."
 echo
 
 python3 /app/scripts/js_analyze.py "$OUT" \
@@ -138,11 +157,12 @@ python3 /app/scripts/js_analyze.py "$OUT" \
 
 echo
 echo "============================================"
-echo "[+] VIGÍA + JS Analysis complete"
+echo "[+] VIGÍA complete"
 echo "============================================"
 echo "    Report:     data/${PROGRAM}/${TS}/index.html"
 echo "    Endpoints:  data/${PROGRAM}/${TS}/findings/endpoints.txt"
 echo "    Secrets:    data/${PROGRAM}/${TS}/findings/secrets.txt"
+echo "    Nuclei:     data/${PROGRAM}/${TS}/findings/nuclei/ ($NUCLEI_COUNT hits)"
 echo "    JS raw:     data/${PROGRAM}/${TS}/findings/js-raw/"
 echo "    JS analysis: data/${PROGRAM}/${TS}/findings/js-analysis/"
 echo

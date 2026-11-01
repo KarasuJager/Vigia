@@ -50,7 +50,11 @@ RUN set -eux; \
     }; \
     get projectdiscovery/subfinder subfinder; \
     get projectdiscovery/httpx     httpx; \
+    get projectdiscovery/nuclei    nuclei; \
     get owasp-amass/amass          amass
+
+# Nuclei templates (only critical + high + exposed-panels + cves)
+RUN nuclei -update-templates 2>/dev/null || true
 
 WORKDIR /app
 COPY scripts/ /app/scripts/
