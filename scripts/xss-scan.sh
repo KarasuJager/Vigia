@@ -83,16 +83,33 @@ if [ -f "$RUN_PATH/findings/js-analysis/linkfinder.txt" ]; then
     grep '?' "$RUN_PATH/findings/js-analysis/linkfinder.txt" >> "$URLS_FILE" 2>/dev/null || true
 fi
 
+# Sanitize (strip \r from Windows)
+sed -i 's/\r$//' "$URLS_FILE"
+
 # Filter: only URLs from target domains (from roots.txt), not third-party (google, cdn, etc.)
 if [ -f "$RUN_PATH/roots.txt" ]; then
-    FILTER_PATTERN=$(paste -sd'|' "$RUN_PATH/roots.txt")
-    grep -E "$FILTER_PATTERN" "$URLS_FILE" | sort -u > "$URLS_FILE.filtered" || true
-    mv "$URLS_FILE.filtered" "$URLS_FILE"
+    sed 's/\r$//' "$RUN_PATH/roots.txt" > /tmp/roots_clean.txt
+    FILTER_PATTERN=$(paste -sd'|' /tmp/roots_clean.txt)
+    if [ -n "$FILTER_PATTERN" ]; then
+        grep -E "$FILTER_PATTERN" "$URLS_FILE" > "$URLS_FILE.filtered" 2>/dev/null || true
+        if [ -s "$URLS_FILE.filtered" ]; then
+            mv "$URLS_FILE.filtered" "$URLS_FILE"
+        else
+            rm -f "$URLS_FILE.filtered"
+            echo "    [!] Filter removed all URLs — skipping filter"
+        fi
+    fi
 fi
 
 # Only keep URLs that actually have query parameters
-grep '?' "$URLS_FILE" | sort -u > "$URLS_FILE.params" || true
-mv "$URLS_FILE.params" "$URLS_FILE"
+grep '?' "$URLS_FILE" > "$URLS_FILE.params" 2>/dev/null || true
+if [ -s "$URLS_FILE.params" ]; then
+    mv "$URLS_FILE.params" "$URLS_FILE"
+else
+    rm -f "$URLS_FILE.params"
+fi
+
+sort -u "$URLS_FILE" -o "$URLS_FILE"
 
 URL_COUNT=$(wc -l < "$URLS_FILE")
 echo "    -> $URL_COUNT URLs con parámetros (solo target, sin terceros)"
