@@ -1,11 +1,12 @@
 # Vigía — recon + JS deep analysis toolbox
 # Multi-stage: compile JSLuice with Go, then copy binary to slim image.
 
-# ---- Stage 1: Build Go tools (JSLuice, qsreplace, dalfox) ----
+# ---- Stage 1: Build Go tools ----
 FROM golang:1.22-bookworm AS go-builder
-RUN go install github.com/BishopFox/jsluice/cmd/jsluice@latest && \
-    go install github.com/tomnomnom/qsreplace@latest && \
-    go install github.com/hahwul/dalfox/v2@latest
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev && rm -rf /var/lib/apt/lists/*
+RUN CGO_ENABLED=1 go install github.com/BishopFox/jsluice/cmd/jsluice@latest
+RUN go install github.com/tomnomnom/qsreplace@latest
+RUN go install github.com/hahwul/dalfox/v2@latest
 
 # ---- Stage 2: Main image ----
 FROM python:3.12-slim-bookworm
