@@ -2,7 +2,7 @@
 # Multi-stage: compile JSLuice with Go, then copy binary to slim image.
 
 # ---- Stage 1: Build Go tools ----
-FROM golang:1.22-bookworm AS go-builder
+FROM golang:1.25-bookworm AS go-builder
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev && rm -rf /var/lib/apt/lists/*
 RUN CGO_ENABLED=1 go install github.com/BishopFox/jsluice/cmd/jsluice@latest
 RUN go install github.com/tomnomnom/qsreplace@latest
