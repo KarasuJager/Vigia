@@ -115,6 +115,11 @@ async def extract_js(browser, results, args):
                 body = await resp.text()
             except Exception:
                 return
+            # Save raw JS to disk for external analysis tools
+            js_raw_dir = Path(args.out) / "findings" / "js-raw"
+            js_raw_dir.mkdir(parents=True, exist_ok=True)
+            js_filename = safe_name(js) + ".js"
+            (js_raw_dir / js_filename).write_text(body, errors="replace")
             for m in ENDPOINT_RE.finditer(body):
                 ep = m.group(1).strip("\"'")
                 if 1 < len(ep) < 250:

@@ -2,6 +2,33 @@
 # Vigía — recon orchestrator: enum -> alive -> crawl/screenshot/extract -> HTML report.
 set -euo pipefail
 
+# Banner
+cat <<'BANNER'
+
+                                                       |
+                .                                      |
+                 '.                                  __|__
+                   '.                               /_____\
+                     '.____________________________/|  |  |\
+                      /                            ||  |  ||
+                     /                             ||__|__||
+                    /                             /========\
+                   /                              '==|  |=='
+                                                     |\/|
+  __     __  ___    ____   ___      _                 |/\|
+  \ \   / / |_ _|  / ___| |_ _|    / \                |\/|
+   \ \ / /   | |  | |  _   | |    / _ \               |/\|
+    \ V /    | |  | |_| |  | |   / ___ \             /|  |\
+     \_/    |___|  \____| |___| /_/   \_\           /_|__|_\
+                                                  /        \
+  ------------------------------------------    _/__________\_
+  containerized bug-bounty recon              _/              \_
+  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~/~~~~~~~~~~~~~~~~~~\~
+
+                   github.com/KarasuJager/Vigia
+
+BANNER
+
 SCOPE="${1:-}"
 PROGRAM="${2:-}"
 
@@ -52,6 +79,18 @@ fi
 cat "$OUT/roots.txt" >> "$OUT/subs.raw"
 sort -u "$OUT/subs.raw" > "$OUT/subs.txt"
 rm -f "$OUT/subs.raw"
+
+# --- Out-of-scope exclusion (compliance): drop OOS hosts before probing ---
+# Looks for a sibling "<scope>.exclude.txt" (one ERE pattern per line). If absent,
+# behaviour is unchanged. Keeps active probing/crawling strictly in-scope.
+EXCL="${SCOPE%.*}.exclude.txt"
+if [[ -f "$EXCL" ]]; then
+  _before=$(wc -l < "$OUT/subs.txt")
+  grep -vEf "$EXCL" "$OUT/subs.txt" > "$OUT/subs.scoped" || true
+  mv "$OUT/subs.scoped" "$OUT/subs.txt"
+  cp "$EXCL" "$OUT/exclude.txt"
+  echo "    -> excluded $(( _before - $(wc -l < "$OUT/subs.txt") )) out-of-scope host(s) ($(basename "$EXCL"))"
+fi
 echo "    -> $(wc -l < "$OUT/subs.txt") unique hosts"
 
 echo "[*] Probing for live HTTP(S) services (httpx)"
@@ -78,7 +117,7 @@ echo "[*] Crawl + screenshot + JS extraction (Obscura via CDP)"
 python3 /app/scripts/crawl_extract.py \
   --urls "$OUT/alive_urls.txt" \
   --out "$OUT" \
-  --ws "${OBSCURA_WS:-ws://localhost:9222}" \
+  --ws "${OBSCURA_WS:-ws://obscura:9222}" \
   --handle "$HANDLE" \
   --contact "$CONTACT" \
   --concurrency "$CONCURRENCY" \
@@ -89,7 +128,22 @@ python3 /app/scripts/crawl_extract.py \
 ln -sfn "$OUT" "/data/${PROGRAM}/latest"
 
 echo
-echo "[+] Done."
-echo "    Report:    data/${PROGRAM}/${TS}/index.html   (also: data/${PROGRAM}/latest)"
-echo "    Endpoints: data/${PROGRAM}/${TS}/findings/endpoints.txt"
-echo "    Secrets:   data/${PROGRAM}/${TS}/findings/secrets.txt"
+echo "[+] Recon complete. Starting JS Deep Analysis..."
+echo
+
+python3 /app/scripts/js_analyze.py "$OUT" \
+  --linkfinder /opt/LinkFinder/linkfinder.py \
+  --secretfinder /opt/SecretFinder/SecretFinder.py \
+  --jsluice /usr/local/bin/jsluice
+
+echo
+echo "============================================"
+echo "[+] VIGÍA + JS Analysis complete"
+echo "============================================"
+echo "    Report:     data/${PROGRAM}/${TS}/index.html"
+echo "    Endpoints:  data/${PROGRAM}/${TS}/findings/endpoints.txt"
+echo "    Secrets:    data/${PROGRAM}/${TS}/findings/secrets.txt"
+echo "    JS raw:     data/${PROGRAM}/${TS}/findings/js-raw/"
+echo "    JS analysis: data/${PROGRAM}/${TS}/findings/js-analysis/"
+echo
+echo "    Share results with Mimir for hypothesis generation."

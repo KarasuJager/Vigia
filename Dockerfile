@@ -1,18 +1,33 @@
-# recon toolbox: enum (subfinder, amass, httpx) + crawl/extract driver (Playwright over CDP)
-# Uses official precompiled release binaries (linux/amd64 — matches Docker Desktop on Windows/Mac/Linux).
-# No Go toolchain, no compiling: fast build, no Go-version drift.
+# Vigía — recon + JS deep analysis toolbox
+# Multi-stage: compile JSLuice with Go, then copy binary to slim image.
 
+# ---- Stage 1: Build JSLuice ----
+FROM golang:1.22-bookworm AS jsluice-builder
+RUN go install github.com/BishopFox/jsluice/cmd/jsluice@latest
+
+# ---- Stage 2: Main image ----
 FROM python:3.12-slim-bookworm
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl jq unzip tar gzip bash \
+ && apt-get install -y --no-install-recommends ca-certificates curl jq unzip tar gzip bash git nodejs npm \
  && rm -rf /var/lib/apt/lists/*
 
-# Playwright client only — we connect to Obscura over CDP, so no browser download needed.
-RUN pip install --no-cache-dir playwright==1.48.0
+# Playwright client + jsbeautifier
+RUN pip install --no-cache-dir playwright==1.48.0 jsbeautifier
 
-# Pull latest linux/amd64 release binary for each tool via the GitHub API.
-# Handles both .zip (projectdiscovery) and .tar.gz (amass v5) assets, any Linux/linux casing.
+# RetireJS
+RUN npm install -g retire
+
+# LinkFinder + SecretFinder
+RUN git clone --depth 1 https://github.com/dark-warlord14/LinkFinder.git /opt/LinkFinder \
+ && pip install --no-cache-dir -r /opt/LinkFinder/requirements.txt \
+ && git clone --depth 1 https://github.com/m4ll0k/SecretFinder.git /opt/SecretFinder \
+ && pip install --no-cache-dir -r /opt/SecretFinder/requirements.txt
+
+# JSLuice from builder stage
+COPY --from=jsluice-builder /go/bin/jsluice /usr/local/bin/jsluice
+
+# Recon tools (subfinder, httpx, amass)
 RUN set -eux; \
     get() { \
       repo="$1"; bin="$2"; \
@@ -41,5 +56,5 @@ WORKDIR /app
 COPY scripts/ /app/scripts/
 RUN chmod +x /app/scripts/*.sh
 
-ENTRYPOINT ["/bin/bash"]
-CMD ["-lc", "./scripts/recon.sh"]
+ENTRYPOINT ["/app/scripts/recon.sh"]
+CMD []
