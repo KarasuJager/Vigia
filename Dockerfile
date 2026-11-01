@@ -1,9 +1,11 @@
 # Vigía — recon + JS deep analysis toolbox
 # Multi-stage: compile JSLuice with Go, then copy binary to slim image.
 
-# ---- Stage 1: Build JSLuice ----
-FROM golang:1.22-bookworm AS jsluice-builder
-RUN go install github.com/BishopFox/jsluice/cmd/jsluice@latest
+# ---- Stage 1: Build Go tools (JSLuice, qsreplace, dalfox) ----
+FROM golang:1.22-bookworm AS go-builder
+RUN go install github.com/BishopFox/jsluice/cmd/jsluice@latest && \
+    go install github.com/tomnomnom/qsreplace@latest && \
+    go install github.com/hahwul/dalfox/v2@latest
 
 # ---- Stage 2: Main image ----
 FROM python:3.12-slim-bookworm
@@ -24,8 +26,10 @@ RUN git clone --depth 1 https://github.com/dark-warlord14/LinkFinder.git /opt/Li
  && git clone --depth 1 https://github.com/m4ll0k/SecretFinder.git /opt/SecretFinder \
  && pip install --no-cache-dir -r /opt/SecretFinder/requirements.txt
 
-# JSLuice from builder stage
-COPY --from=jsluice-builder /go/bin/jsluice /usr/local/bin/jsluice
+# Go tools from builder stage
+COPY --from=go-builder /go/bin/jsluice /usr/local/bin/jsluice
+COPY --from=go-builder /go/bin/qsreplace /usr/local/bin/qsreplace
+COPY --from=go-builder /go/bin/dalfox /usr/local/bin/dalfox
 
 # Recon tools (subfinder, httpx, amass)
 RUN set -eux; \
@@ -60,5 +64,5 @@ WORKDIR /app
 COPY scripts/ /app/scripts/
 RUN chmod +x /app/scripts/*.sh
 
-ENTRYPOINT ["/app/scripts/recon.sh"]
+ENTRYPOINT ["/app/scripts/entrypoint.sh"]
 CMD []
