@@ -16,7 +16,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # Playwright client + jsbeautifier
-RUN pip install --no-cache-dir playwright==1.48.0 jsbeautifier
+RUN pip install --no-cache-dir playwright==1.48.0 jsbeautifier requests
 
 # RetireJS
 RUN npm install -g retire
