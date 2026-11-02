@@ -117,7 +117,7 @@ echo "[*] Crawl + screenshot + JS extraction (Obscura via CDP)"
 python3 /app/scripts/crawl_extract.py \
   --urls "$OUT/alive_urls.txt" \
   --out "$OUT" \
-  --ws "${OBSCURA_WS:-ws://localhost:9222}" \
+  --ws "${OBSCURA_WS:-ws://obscura:9222}" \
   --handle "$HANDLE" \
   --contact "$CONTACT" \
   --concurrency "$CONCURRENCY" \
@@ -128,7 +128,16 @@ python3 /app/scripts/crawl_extract.py \
 ln -sfn "$OUT" "/data/${PROGRAM}/latest"
 
 echo
-echo "[+] Recon complete. Starting JS Deep Analysis..."
+echo "[+] Recon complete. Checking for source maps..."
+echo
+
+python3 /app/scripts/sourcemap_extract.py "$OUT" \
+  --handle "$HANDLE" \
+  --delay-ms "${REQ_DELAY_MS:-400}" \
+  2>/dev/null || true
+
+echo
+echo "[+] Starting JS Deep Analysis..."
 echo
 
 python3 /app/scripts/js_analyze.py "$OUT" \
