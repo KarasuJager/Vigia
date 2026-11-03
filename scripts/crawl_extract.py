@@ -5,7 +5,8 @@ Vigía — crawl + screenshot + JS extraction driver.
 Connect to the headless browser over CDP, and for each live URL:
   - screenshot (full page)
   - collect links, <script src>, and every resource URL the page requested
-  - fetch the JS files and regex out endpoints + likely secrets
+  - fetch JS files IN THE SAME CONTEXT (inherits WAF cookies like Akamai)
+  - regex out endpoints + likely secrets from downloaded JS
 Then build a browsable index.html.
 
 Traffic is identified (User-Agent + X-Bug-Bounty header) and throttled.
@@ -64,6 +65,10 @@ SECRET_PATTERNS = [
 def safe_name(url: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", url)[:150]
 
+# Shared set to avoid fetching the same JS file from multiple crawl contexts
+_fetched_js_lock = asyncio.Lock()
+_fetched_js = set()
+
 # ---- per-host crawl ---------------------------------------------------------
 
 async def crawl_one(browser, url, args, results, sem):
@@ -99,6 +104,39 @@ async def crawl_one(browser, url, args, results, sem):
             host_result["scripts"] = sorted(set(scripts))
             host_result["resources"] = sorted(resources)[:3000]
 
+            # --- Fetch JS files IN THIS CONTEXT (inherits WAF/Akamai cookies) ---
+            js_urls_here = set()
+            for u in host_result["scripts"] + list(resources):
+                if u.split("?")[0].lower().endswith(".js"):
+                    js_urls_here.add(u)
+
+            if js_urls_here:
+                js_raw_dir = Path(args.out) / "findings" / "js-raw"
+                js_raw_dir.mkdir(parents=True, exist_ok=True)
+                fetched_count = 0
+                for js_url in js_urls_here:
+                    js_filename = safe_name(js_url) + ".js"
+                    # Skip if another crawl context already fetched this file
+                    async with _fetched_js_lock:
+                        if js_url in _fetched_js:
+                            continue
+                        _fetched_js.add(js_url)
+                    try:
+                        js_resp = await ctx.request.get(
+                            js_url, timeout=args.nav_timeout * 1000)
+                        body = await js_resp.text()
+                        if body and len(body) > 50:
+                            (js_raw_dir / js_filename).write_text(
+                                body, errors="replace")
+                            fetched_count += 1
+                    except Exception:
+                        pass
+                    await asyncio.sleep(args.delay_ms / 1000)
+                if fetched_count:
+                    print(f"      -> {fetched_count} JS files saved (in-context)",
+                          flush=True)
+            # --- END JS fetch ---
+
             await ctx.close()
         except Exception as e:
             host_result["error"] = str(e)[:300]
@@ -110,53 +148,47 @@ async def crawl_one(browser, url, args, results, sem):
         print(f"    [{tag}] {url}", flush=True)
         await asyncio.sleep(args.delay_ms / 1000)
 
-# ---- JS endpoint / secret extraction ----------------------------------------
+# ---- JS endpoint / secret extraction (from disk) ---------------------------
 
-async def extract_js(browser, results, args):
-    js_urls = set()
-    for r in results:
-        for u in r["scripts"] + r["resources"]:
-            if u.split("?")[0].lower().endswith(".js"):
-                js_urls.add(u)
-    print(f"[*] Extracting from {len(js_urls)} JS files", flush=True)
+def extract_js_from_disk(args):
+    """Analyse JS files already saved to disk by crawl_one (no network needed)."""
+    js_raw_dir = Path(args.out) / "findings" / "js-raw"
+    if not js_raw_dir.exists():
+        print("[*] No JS files downloaded — skipping extraction", flush=True)
+        return 0, []
+
+    js_files = sorted(js_raw_dir.glob("*.js"))
+    print(f"[*] Extracting from {len(js_files)} JS files", flush=True)
 
     endpoints, secrets = {}, []
-    ua = f"bugbounty-{args.handle}" + (f" (+{args.contact})" if args.contact else "")
-    ctx = await browser.new_context(user_agent=ua,
-                                    extra_http_headers={"X-Bug-Bounty": args.handle},
-                                    ignore_https_errors=True)
-    req = ctx.request
-    sem = asyncio.Semaphore(args.concurrency)
+    for js_file in js_files:
+        try:
+            body = js_file.read_text(errors="replace")
+        except Exception:
+            continue
+        source = js_file.name  # filename
+        for m in ENDPOINT_RE.finditer(body):
+            ep = m.group(1).strip("\"'")
+            if 1 < len(ep) < 250:
+                endpoints.setdefault(ep, set()).add(source)
+        for label, pat in SECRET_PATTERNS:
+            for sm in pat.finditer(body):
+                secrets.append({
+                    "type": label,
+                    "match": sm.group(0)[:120],
+                    "source": source,
+                })
 
-    async def pull(js):
-        async with sem:
-            try:
-                resp = await req.get(js, timeout=args.nav_timeout * 1000)
-                body = await resp.text()
-            except Exception:
-                return
-            # Save raw JS to disk for external analysis tools
-            js_raw_dir = Path(args.out) / "findings" / "js-raw"
-            js_raw_dir.mkdir(parents=True, exist_ok=True)
-            js_filename = safe_name(js) + ".js"
-            (js_raw_dir / js_filename).write_text(body, errors="replace")
-            for m in ENDPOINT_RE.finditer(body):
-                ep = m.group(1).strip("\"'")
-                if 1 < len(ep) < 250:
-                    endpoints.setdefault(ep, set()).add(js)
-            for label, pat in SECRET_PATTERNS:
-                for sm in pat.finditer(body):
-                    secrets.append({"type": label, "match": sm.group(0)[:120], "source": js})
-            await asyncio.sleep(args.delay_ms / 1000)
-
-    await asyncio.gather(*(pull(j) for j in js_urls))
-    await ctx.close()
-
-    ep_lines = [f"{ep}\t<- {sorted(srcs)[0]}" for ep, srcs in sorted(endpoints.items())]
-    (Path(args.out) / "findings" / "endpoints.txt").write_text("\n".join(ep_lines))
-    sec_lines = [f"[{s['type']}] {s['match']}  ({s['source']})" for s in secrets]
-    (Path(args.out) / "findings" / "secrets.txt").write_text("\n".join(sec_lines))
-    print(f"    -> {len(endpoints)} endpoints, {len(secrets)} potential secrets", flush=True)
+    ep_lines = [f"{ep}\t<- {sorted(srcs)[0]}"
+                for ep, srcs in sorted(endpoints.items())]
+    (Path(args.out) / "findings" / "endpoints.txt").write_text(
+        "\n".join(ep_lines))
+    sec_lines = [f"[{s['type']}] {s['match']}  ({s['source']})"
+                 for s in secrets]
+    (Path(args.out) / "findings" / "secrets.txt").write_text(
+        "\n".join(sec_lines))
+    print(f"    -> {len(endpoints)} endpoints, {len(secrets)} potential secrets",
+          flush=True)
     return len(endpoints), secrets
 
 # ---- report -----------------------------------------------------------------
@@ -231,8 +263,10 @@ async def main():
         browser = await p.chromium.connect_over_cdp(ws_endpoint)
         sem = asyncio.Semaphore(args.concurrency)
         await asyncio.gather(*(crawl_one(browser, u, args, results, sem) for u in urls))
-        n_endpoints, secrets = await extract_js(browser, results, args)
         await browser.close()
+
+    # JS analysis runs on files already saved to disk (no browser needed)
+    n_endpoints, secrets = extract_js_from_disk(args)
 
     build_report(results, out, n_endpoints, secrets)
 
