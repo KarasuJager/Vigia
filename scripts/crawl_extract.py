@@ -14,8 +14,28 @@ No stealth / no evasion — this is authorized bug-bounty recon.
 import argparse, asyncio, json, re, sys
 from pathlib import Path
 from urllib.parse import urlparse
+import urllib.request
 
 from playwright.async_api import async_playwright
+
+
+def resolve_cdp_ws(endpoint: str) -> str:
+    """If endpoint is http://, query Chrome /json/version for the real WS URL."""
+    if not endpoint.startswith("http://"):
+        return endpoint
+    version_url = endpoint.rstrip("/") + "/json/version"
+    try:
+        with urllib.request.urlopen(version_url, timeout=5) as resp:
+            data = json.loads(resp.read())
+        ws_url = data.get("webSocketDebuggerUrl", "")
+        if ws_url:
+            orig_host = urlparse(endpoint).hostname
+            ws_url = ws_url.replace("127.0.0.1", orig_host).replace("localhost", orig_host)
+            print(f"    [CDP] Resolved WS: {ws_url}", flush=True)
+            return ws_url
+    except Exception as e:
+        print(f"    [CDP] Could not resolve WS from {version_url}: {e}", flush=True)
+    return endpoint
 
 # ---- extraction patterns ----------------------------------------------------
 
@@ -207,7 +227,8 @@ async def main():
 
     results = []
     async with async_playwright() as p:
-        browser = await p.chromium.connect_over_cdp(args.ws)
+        ws_endpoint = resolve_cdp_ws(args.ws)
+        browser = await p.chromium.connect_over_cdp(ws_endpoint)
         sem = asyncio.Semaphore(args.concurrency)
         await asyncio.gather(*(crawl_one(browser, u, args, results, sem) for u in urls))
         n_endpoints, secrets = await extract_js(browser, results, args)

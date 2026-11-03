@@ -55,6 +55,36 @@ HTTPX_RATELIMIT="${HTTPX_RATELIMIT:-50}"
 AMASS_ENABLED="${AMASS_ENABLED:-true}"
 AMASS_TIMEOUT_MIN="${AMASS_TIMEOUT_MIN:-10}"
 
+# Browser engine selection: obscura (default), playwright, or chrome (your real browser)
+BROWSER="${BROWSER:-obscura}"
+if [[ "$BROWSER" == "chrome" ]]; then
+  CHROME_PORT="${CHROME_CDP_PORT:-9224}"
+  # Docker Desktop (Windows/Mac): use host.docker.internal to reach the host
+  # Linux with --network host: localhost works directly
+  CHROME_HOST="host.docker.internal"
+  if curl -s "http://localhost:${CHROME_PORT}/json/version" >/dev/null 2>&1; then
+    CHROME_HOST="localhost"
+  fi
+  BROWSER_LABEL="Chrome real (tu navegador — bypasses any WAF)"
+  # Verify Chrome is reachable
+  if ! curl -s "http://${CHROME_HOST}:${CHROME_PORT}/json/version" >/dev/null 2>&1; then
+    echo "[!] Chrome not found on port ${CHROME_PORT}."
+    echo "    Launch it first:"
+    echo "      chrome.exe --remote-debugging-port=${CHROME_PORT} --user-data-dir=\"\$HOME/vigia-chrome\""
+    exit 1
+  fi
+  if [[ -z "$BROWSER_WS" ]]; then
+    BROWSER_WS="http://${CHROME_HOST}:${CHROME_PORT}"
+  fi
+  echo "[*] Connected to Chrome -> ${BROWSER_WS}"
+elif [[ "$BROWSER" == "playwright" ]]; then
+  BROWSER_WS="http://localhost:9223"
+  BROWSER_LABEL="Playwright Chromium (BoringSSL — WAF bypass)"
+else
+  BROWSER_WS="${OBSCURA_WS:-ws://localhost:9222}"
+  BROWSER_LABEL="Obscura (rustls — fast, lightweight)"
+fi
+
 [[ -z "$PROGRAM" ]] && PROGRAM="$(basename "$SCOPE" | sed 's/\.[^.]*$//')"
 TS="$(date -u +%Y%m%d-%H%M%S)"
 OUT="/data/${PROGRAM}/${TS}"
@@ -62,7 +92,7 @@ mkdir -p "$OUT/screenshots" "$OUT/crawl" "$OUT/findings"
 
 # Normalise scope (strip comments/blanks)
 grep -vE '^\s*(#|$)' "$SCOPE" | sed 's/\r$//' | sort -u > "$OUT/roots.txt"
-echo "[*] Program: $PROGRAM   Roots: $(wc -l < "$OUT/roots.txt")   Out: $OUT"
+echo "[*] Program: $PROGRAM   Roots: $(wc -l < "$OUT/roots.txt")   Browser: $BROWSER   Out: $OUT"
 
 echo "[*] Subdomain enumeration (passive)"
 : > "$OUT/subs.raw"
@@ -105,24 +135,37 @@ httpx -silent -l "$OUT/subs.txt" \
 
 # Extract just the URLs for the crawler
 grep -oE 'https?://[^ ]+' "$OUT/alive.txt" 2>/dev/null | sort -u > "$OUT/alive_urls.txt" || true
+HTTPX_COUNT=$(wc -l < "$OUT/alive_urls.txt" 2>/dev/null || echo 0)
+echo "    -> $HTTPX_COUNT live URLs (httpx)"
+
+# WAF fallback: root domains always get crawled even if httpx can't probe them
+# (WAFs block raw HTTP probes but the browser engine passes with real TLS)
+echo "[*] Adding root domains as WAF fallback (browser will validate)"
+while read -r root; do
+  [[ -z "$root" ]] && continue
+  echo "https://${root}"
+  # Only add www. prefix if the root doesn't already start with www.
+  [[ "$root" != www.* ]] && echo "https://www.${root}"
+done < "$OUT/roots.txt" >> "$OUT/alive_urls.txt"
+sort -u -o "$OUT/alive_urls.txt" "$OUT/alive_urls.txt"
 ALIVE_COUNT=$(wc -l < "$OUT/alive_urls.txt" 2>/dev/null || echo 0)
-echo "    -> $ALIVE_COUNT live URLs"
+echo "    -> $ALIVE_COUNT total URLs (httpx + fallback)"
 
 if [[ "$ALIVE_COUNT" -eq 0 ]]; then
   echo "[!] No live hosts. Stopping (nothing to crawl)."
   exit 0
 fi
 
-echo "[*] Crawl + screenshot + JS extraction (Obscura via CDP)"
+echo "[*] Crawl + screenshot + JS extraction ($BROWSER_LABEL)"
 python3 /app/scripts/crawl_extract.py \
   --urls "$OUT/alive_urls.txt" \
   --out "$OUT" \
-  --ws "${OBSCURA_WS:-ws://obscura:9222}" \
+  --ws "$BROWSER_WS" \
   --handle "$HANDLE" \
   --contact "$CONTACT" \
   --concurrency "$CONCURRENCY" \
   --delay-ms "${REQ_DELAY_MS:-400}" \
-  --nav-timeout "${NAV_TIMEOUT_S:-25}"
+  --nav-timeout "${NAV_TIMEOUT_S:-60}"
 
 # Stable pointer to the newest run
 ln -sfn "$OUT" "/data/${PROGRAM}/latest"
