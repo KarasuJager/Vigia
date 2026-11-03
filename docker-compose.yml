@@ -26,13 +26,28 @@ services:
     network_mode: host
     restart: unless-stopped
     profiles:
-      - playwright    # only starts when explicitly requested or BROWSER=playwright
+      - playwright
 
   recon:
     build: .
     working_dir: /app
     depends_on:
       - obscura
+    env_file: .env
+    network_mode: host
+    volumes:
+      - ./scope:/scope:ro
+      - ./data:/data
+
+  # Nuclei scan through Chrome CDP proxy — WAF bypass.
+  # Run AFTER recon has finished. Uses the latest recon data.
+  # Usage:
+  #   docker compose run --rm -e BROWSER=chrome -e BROWSER_WS="$ws" \
+  #     nuclei-scan /scope/target.txt program-name
+  nuclei-scan:
+    build: .
+    working_dir: /app
+    entrypoint: ["bash", "/app/scripts/nuclei_scan.sh"]
     env_file: .env
     network_mode: host
     volumes:
