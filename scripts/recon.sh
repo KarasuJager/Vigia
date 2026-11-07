@@ -147,8 +147,9 @@ echo "[*] Adding root domains as WAF fallback (browser will validate)"
 while read -r root; do
   [[ -z "$root" ]] && continue
   echo "https://${root}"
-  # Only add www. prefix if the root doesn't already start with www.
-  [[ "$root" != www.* ]] && echo "https://www.${root}"
+  # www. solo para dominios raíz (ejemplo.com); en hosts concretos (app-staging.x.com) genera basura DNS
+  dots=$(tr -cd '.' <<< "$root" | wc -c)
+  [[ "$root" != www.* && "$dots" -le 1 ]] && echo "https://www.${root}"
 done < "$OUT/roots.txt" >> "$OUT/alive_urls.txt"
 sort -u -o "$OUT/alive_urls.txt" "$OUT/alive_urls.txt"
 ALIVE_COUNT=$(wc -l < "$OUT/alive_urls.txt" 2>/dev/null || echo 0)
@@ -182,6 +183,11 @@ python3 /app/scripts/sourcemap_extract.py "$OUT" \
   --handle "$HANDLE" \
   --delay-ms "${REQ_DELAY_MS:-400}" \
   2>/dev/null || true
+
+# Los source maps han dejado código fuente en js-raw/: volver a extraer endpoints/secrets sobre TODO
+echo "[*] Re-extracting endpoints/secrets from js-raw (incl. source maps)"
+python3 /app/scripts/crawl_extract.py --extract-only \
+  --urls "$OUT/alive_urls.txt" --out "$OUT" --handle "$HANDLE" 2>/dev/null || true
 
 echo
 echo "[+] Starting JS Deep Analysis..."

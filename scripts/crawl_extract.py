@@ -45,7 +45,8 @@ ENDPOINT_RE = re.compile(r"""
   (?:"|')(
     ((?:[a-zA-Z]{1,10}://|//)[^"'/]{1,}\.[a-zA-Z]{2,}[^"']{0,})      # absolute URL
     | ((?:/|\.\./|\./)[^"'><,;|*()%$^/\\\[\]][^"'><,;|()]{1,})        # relative path
-    | ([a-zA-Z0-9_\-/]{1,}/[a-zA-Z0-9_\-/]{1,}\.(?:[a-zA-Z]{1,4}|action)(?:[?|/][^"|']{0,}|))
+    | ([a-zA-Z0-9_\-/:{}]{1,}/[a-zA-Z0-9_\-/:{}]{1,}\.(?:[a-zA-Z]{1,4}|action)(?:[?|/][^"|']{0,}|))   # admite :id y {id}
+    | ([a-zA-Z0-9_\-/]{1,}/(?::[a-zA-Z_]+|\{[a-zA-Z_]+\})(?:/[a-zA-Z0-9_\-/:{}]{0,}|))               # accounts/:id , users/{id}/x
     | ([a-zA-Z0-9_\-]{1,}\.(?:php|asp|aspx|jsp|json|js|action|html|xml)(?:\?[^"|']{0,}|))
   )(?:"|')
 """, re.VERBOSE)
@@ -251,9 +252,15 @@ async def main():
     ap.add_argument("--concurrency", type=int, default=5)
     ap.add_argument("--delay-ms", type=int, default=400)
     ap.add_argument("--nav-timeout", type=int, default=25)
+    ap.add_argument("--extract-only", action="store_true",
+                    help="no navega: solo re-extrae endpoints/secrets de findings/js-raw (p.ej. tras los source maps)")
     args = ap.parse_args()
 
     out = Path(args.out)
+    if args.extract_only:
+        n_endpoints, secrets = extract_js_from_disk(args)
+        print(f"    -> {n_endpoints} endpoints, {len(secrets)} potential secrets (re-extracción sobre js-raw)")
+        return
     urls = [u.strip() for u in Path(args.urls).read_text().splitlines() if u.strip()]
     if not urls:
         print("[!] no urls", file=sys.stderr); return
