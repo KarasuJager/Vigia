@@ -75,7 +75,7 @@ async def crawl_one(browser, url, args, results, sem):
     async with sem:
         host_result = {"url": url, "status": None, "title": "", "screenshot": None,
                        "links": [], "scripts": [], "resources": [], "error": None}
-        ua = f"bugbounty-{args.handle}" + (f" (+{args.contact})" if args.contact else "")
+        ua = args.ua or (f"bugbounty-{args.handle}" + (f" (+{args.contact})" if args.contact else ""))
         resources = set()
         try:
             ctx = await browser.new_context(
@@ -246,6 +246,7 @@ async def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--ws", default="ws://obscura:9222")
     ap.add_argument("--handle", default="researcher")
+    ap.add_argument("--ua", default="", help="User-Agent completo (si el programa exige uno exacto)")
     ap.add_argument("--contact", default="")
     ap.add_argument("--concurrency", type=int, default=5)
     ap.add_argument("--delay-ms", type=int, default=400)

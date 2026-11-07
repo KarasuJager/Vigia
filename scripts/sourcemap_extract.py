@@ -99,7 +99,7 @@ def download(url: str, handle: str, timeout: int = 15,
         resp = requests.get(
             url,
             headers={
-                "User-Agent": f"bugbounty-{handle}",
+                "User-Agent": os.environ.get("UA_OVERRIDE") or f"bugbounty-{handle}",
                 "X-Bug-Bounty": handle,
             },
             timeout=timeout,

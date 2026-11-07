@@ -126,6 +126,9 @@ echo "    -> $(wc -l < "$OUT/subs.txt") unique hosts"
 echo "[*] Probing for live HTTP(S) services (httpx)"
 UA="bugbounty-${HANDLE}"
 [[ -n "$CONTACT" ]] && UA="${UA} (+${CONTACT})"
+# UA_OVERRIDE: algunos programas exigen un User-Agent exacto (p.ej. YesWeHack). Si viene, manda.
+[[ -n "${UA_OVERRIDE:-}" ]] && UA="${UA_OVERRIDE}"
+echo "[*] Identificación: User-Agent=\"${UA}\"  X-Bug-Bounty=${HANDLE}"
 httpx -silent -l "$OUT/subs.txt" \
   -rl "$HTTPX_RATELIMIT" \
   -H "User-Agent: ${UA}" \
@@ -163,6 +166,7 @@ python3 /app/scripts/crawl_extract.py \
   --ws "$BROWSER_WS" \
   --handle "$HANDLE" \
   --contact "$CONTACT" \
+  --ua "$UA" \
   --concurrency "$CONCURRENCY" \
   --delay-ms "${REQ_DELAY_MS:-400}" \
   --nav-timeout "${NAV_TIMEOUT_S:-60}"
@@ -189,6 +193,10 @@ python3 /app/scripts/js_analyze.py "$OUT" \
   --jsluice /usr/local/bin/jsluice
 
 echo
+if [ "${NUCLEI_ENABLED:-true}" != "true" ]; then
+  echo "[*] Nuclei desactivado (NUCLEI_ENABLED=${NUCLEI_ENABLED}) — el programa no permite escaneo automatizado"
+  mkdir -p "$OUT/findings/nuclei"; : > "$OUT/findings/nuclei/results.txt"
+else
 echo "[+] Starting Nuclei scan (critical + high)..."
 echo
 
@@ -203,6 +211,7 @@ nuclei -l "$OUT/alive_urls.txt" \
   -o "$OUT/findings/nuclei/results.txt" \
   -jsonl -je "$OUT/findings/nuclei/results.jsonl" \
   -silent 2>/dev/null || true
+fi
 
 NUCLEI_COUNT=$(wc -l < "$OUT/findings/nuclei/results.txt" 2>/dev/null || echo 0)
 echo "    -> $NUCLEI_COUNT findings (critical + high)"
