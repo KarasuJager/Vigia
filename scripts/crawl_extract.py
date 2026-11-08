@@ -81,7 +81,7 @@ async def crawl_one(browser, url, args, results, sem):
         try:
             ctx = await browser.new_context(
                 user_agent=ua,
-                extra_http_headers={"X-Bug-Bounty": args.handle},
+                extra_http_headers={args.ident_header: args.handle},
                 ignore_https_errors=True,
             )
             page = await ctx.new_page()
@@ -248,6 +248,7 @@ async def main():
     ap.add_argument("--ws", default="ws://obscura:9222")
     ap.add_argument("--handle", default="researcher")
     ap.add_argument("--ua", default="", help="User-Agent completo (si el programa exige uno exacto)")
+    ap.add_argument("--ident-header", default="X-Bug-Bounty", help="nombre de la cabecera de identificación (p.ej. X-HackerOne-Research)")
     ap.add_argument("--contact", default="")
     ap.add_argument("--concurrency", type=int, default=5)
     ap.add_argument("--delay-ms", type=int, default=400)

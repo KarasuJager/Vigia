@@ -121,6 +121,16 @@ if [[ -f "$EXCL" ]]; then
   cp "$EXCL" "$OUT/exclude.txt"
   echo "    -> excluded $(( _before - $(wc -l < "$OUT/subs.txt") )) out-of-scope host(s) ($(basename "$EXCL"))"
 fi
+# --- In-scope allowlist (compliance): keep ONLY hosts matching "<scope>.include.txt" (one ERE per line).
+# Closed host lists and mid-wildcards (*.test.*.x.com) need this; without the file, behaviour is unchanged.
+INCL="${SCOPE%.*}.include.txt"
+if [[ -f "$INCL" && -s "$INCL" ]]; then
+  _before=$(wc -l < "$OUT/subs.txt")
+  grep -Eif "$INCL" "$OUT/subs.txt" > "$OUT/subs.scoped" || true
+  mv "$OUT/subs.scoped" "$OUT/subs.txt"
+  cp "$INCL" "$OUT/include.txt"
+  echo "    -> kept $(wc -l < "$OUT/subs.txt") in-scope host(s), dropped $(( _before - $(wc -l < "$OUT/subs.txt") )) ($(basename "$INCL"))"
+fi
 echo "    -> $(wc -l < "$OUT/subs.txt") unique hosts"
 
 echo "[*] Probing for live HTTP(S) services (httpx)"
@@ -128,11 +138,13 @@ UA="bugbounty-${HANDLE}"
 [[ -n "$CONTACT" ]] && UA="${UA} (+${CONTACT})"
 # UA_OVERRIDE: algunos programas exigen un User-Agent exacto (p.ej. YesWeHack). Si viene, manda.
 [[ -n "${UA_OVERRIDE:-}" ]] && UA="${UA_OVERRIDE}"
-echo "[*] Identificación: User-Agent=\"${UA}\"  X-Bug-Bounty=${HANDLE}"
+# IDENT_HEADER: nombre de la cabecera de identificación (por defecto X-Bug-Bounty; HackerOne pide X-HackerOne-Research)
+IDENT_HEADER="${IDENT_HEADER:-X-Bug-Bounty}"
+echo "[*] Identificación: User-Agent=\"${UA}\"  ${IDENT_HEADER}=${HANDLE}"
 httpx -silent -l "$OUT/subs.txt" \
   -rl "$HTTPX_RATELIMIT" \
   -H "User-Agent: ${UA}" \
-  -H "X-Bug-Bounty: ${HANDLE}" \
+  -H "${IDENT_HEADER}: ${HANDLE}" \
   -sc -title -td -ip -cl \
   -o "$OUT/alive.txt" 2>/dev/null || true
 
@@ -168,6 +180,7 @@ python3 /app/scripts/crawl_extract.py \
   --handle "$HANDLE" \
   --contact "$CONTACT" \
   --ua "$UA" \
+  --ident-header "$IDENT_HEADER" \
   --concurrency "$CONCURRENCY" \
   --delay-ms "${REQ_DELAY_MS:-400}" \
   --nav-timeout "${NAV_TIMEOUT_S:-60}"
@@ -211,7 +224,7 @@ nuclei -l "$OUT/alive_urls.txt" \
   -severity critical,high \
   -t cves/ -t exposed-panels/ -t misconfiguration/ -t default-logins/ \
   -H "User-Agent: ${UA}" \
-  -H "X-Bug-Bounty: ${HANDLE}" \
+  -H "${IDENT_HEADER}: ${HANDLE}" \
   -rl 25 \
   -c 10 \
   -o "$OUT/findings/nuclei/results.txt" \
