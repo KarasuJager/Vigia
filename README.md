@@ -345,3 +345,32 @@ Built by [Manuel Miguel Fernandez-Gallego Olivares](https://www.linkedin.com/in/
 · Offensive Security Engineer · part of a small toolkit alongside
 [SONDA](https://github.com/KarasuJager) (HTTP differential testing) and
 bb-alert (new-program alerting).
+
+## Hidden surface, real API & cache map (Nov 2026)
+
+Everything below is passive (it reads traffic the browser already makes, or files already downloaded),
+identified (User-Agent + identification header) and paced by the program's requests-per-minute.
+
+| Output (`findings/`) | What it is |
+|---|---|
+| `api-calls.txt` / `.jsonl` | Real XHR/fetch calls the page made (method, status, GraphQL operation name) — in-scope only |
+| `cache-map.txt` / `.json` | Per-host cache/CDN map (static vs HTML vs API, HIT/MISS, Cache-Control, Vary) with a **WCD signal** (where Web Cache Deception is worth trying by hand) |
+| `app-routes.txt` / `middleware-routes.txt` | Every route of a Next.js app read from `__BUILD_MANIFEST` (screens without links) + `_next/data` JSON routes + middleware-protected routes |
+| `js-raw/` (+ hidden chunks) | Chunks the browser never requested: from the route map, and from [getfrontend](https://github.com/zb3/getfrontend) (webpack/vite/Next/Remix) wrapped by `gf_run.py` (1 thread, fixed delay, max 2 retries, stops on blocks, request cap) |
+| `hidden/` | Feature flags, client-side roles/permissions, named GraphQL operations, front-end router routes, embedded config, hosts in JS (in-scope / same org — never touched / third party). Third-party and library JS is ignored |
+| `endpoints-top.txt` | Endpoints ranked by interest (in-scope, object IDs, API/GraphQL, redirect/file params, admin/internal) |
+| `js-analysis/xnlinkfinder*.txt` | [xnLinkFinder](https://github.com/xnl-h4ck3r/xnLinkFinder) links + parameters (replaces LinkFinder) |
+
+Short in-scope crawl: `CRAWL_DEPTH` (default 2), `PAGES_PER_HOST` (10), `CHUNKS_MAX` (300); one URL per "shape"
+(`/product/1` and `/product/2` count once); logout/delete/unsubscribe-style links are never followed.
+`GETFRONTEND_ENABLED=false` disables getfrontend. `HTTPX_RPM` makes httpx follow the program's per-minute limit.
+
+### Active cache testing (manual, explicit OK only)
+
+```bash
+docker compose run --rm recon wcvs /data/<program>/latest <rpm> OK [deception|poisoning] [url ...]
+```
+Runs [Web-Cache-Vulnerability-Scanner](https://github.com/Hackmanit/Web-Cache-Vulnerability-Scanner) on hosts the cache
+map flags (or given URLs), 1 thread at the program's pace. `deception` (default) = WCD techniques only;
+`poisoning` adds header/parameter/cookie techniques. DoS and request-smuggling tests are never run.
+Without the literal `OK` argument nothing is sent.

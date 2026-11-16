@@ -7,6 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev &
 RUN CGO_ENABLED=1 go install github.com/BishopFox/jsluice/cmd/jsluice@latest
 RUN go install github.com/tomnomnom/qsreplace@latest
 RUN go install github.com/hahwul/dalfox/v2@latest
+# Web Cache Vulnerability Scanner (Hackmanit) — solo para el comando manual `wcvs` (con OK)
+RUN go install github.com/Hackmanit/Web-Cache-Vulnerability-Scanner@latest
 
 # ---- Stage 2: Main image ----
 FROM python:3.12-slim-bookworm
@@ -21,16 +23,18 @@ RUN pip install --no-cache-dir playwright==1.48.0 jsbeautifier requests
 # RetireJS
 RUN npm install -g retire
 
-# LinkFinder + SecretFinder
-RUN git clone --depth 1 https://github.com/dark-warlord14/LinkFinder.git /opt/LinkFinder \
- && pip install --no-cache-dir -r /opt/LinkFinder/requirements.txt \
- && git clone --depth 1 https://github.com/m4ll0k/SecretFinder.git /opt/SecretFinder \
- && pip install --no-cache-dir -r /opt/SecretFinder/requirements.txt
+# SecretFinder + xnLinkFinder (sustituye a LinkFinder) + getfrontend (chunks no cargados; lo ata gf_run.py)
+RUN git clone --depth 1 https://github.com/m4ll0k/SecretFinder.git /opt/SecretFinder \
+ && pip install --no-cache-dir -r /opt/SecretFinder/requirements.txt \
+ && pip install --no-cache-dir xnLinkFinder \
+ && git clone --depth 1 https://github.com/zb3/getfrontend.git /opt/getfrontend \
+ && pip install --no-cache-dir urllib3
 
 # Go tools from builder stage
 COPY --from=go-builder /go/bin/jsluice /usr/local/bin/jsluice
 COPY --from=go-builder /go/bin/qsreplace /usr/local/bin/qsreplace
 COPY --from=go-builder /go/bin/dalfox /usr/local/bin/dalfox
+COPY --from=go-builder /go/bin/Web-Cache-Vulnerability-Scanner /usr/local/bin/Web-Cache-Vulnerability-Scanner
 
 # Recon tools (subfinder, httpx, amass)
 RUN set -eux; \

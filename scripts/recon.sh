@@ -141,8 +141,11 @@ UA="bugbounty-${HANDLE}"
 # IDENT_HEADER: nombre de la cabecera de identificación (por defecto X-Bug-Bounty; HackerOne pide X-HackerOne-Research)
 IDENT_HEADER="${IDENT_HEADER:-X-Bug-Bounty}"
 echo "[*] Identificación: User-Agent=\"${UA}\"  ${IDENT_HEADER}=${HANDLE}"
+# Ritmo de httpx: si el programa fija peticiones/minuto (HTTPX_RPM, lo pasa el orquestador), manda eso
+if [[ -n "${HTTPX_RPM:-}" ]]; then HTTPX_RL=(-rlm "$HTTPX_RPM" -t 1); echo "[*] httpx a ${HTTPX_RPM} peticiones/minuto (límite del programa)"
+else HTTPX_RL=(-rl "$HTTPX_RATELIMIT"); fi
 httpx -silent -l "$OUT/subs.txt" \
-  -rl "$HTTPX_RATELIMIT" \
+  "${HTTPX_RL[@]}" \
   -H "User-Agent: ${UA}" \
   -H "${IDENT_HEADER}: ${HANDLE}" \
   -sc -title -td -ip -cl \
@@ -183,10 +186,24 @@ python3 /app/scripts/crawl_extract.py \
   --ident-header "$IDENT_HEADER" \
   --concurrency "$CONCURRENCY" \
   --delay-ms "${REQ_DELAY_MS:-400}" \
-  --nav-timeout "${NAV_TIMEOUT_S:-60}"
+  --nav-timeout "${NAV_TIMEOUT_S:-60}" \
+  --include "$( [[ -f "$OUT/include.txt" ]] && echo "$OUT/include.txt" )" \
+  --exclude "$( [[ -f "$OUT/exclude.txt" ]] && echo "$OUT/exclude.txt" )" \
+  --roots "$OUT/roots.txt" \
+  --depth "${CRAWL_DEPTH:-2}" \
+  --pages-per-host "${PAGES_PER_HOST:-10}" \
+  --chunks-max "${CHUNKS_MAX:-300}"
 
 # Stable pointer to the newest run
 ln -sfn "$OUT" "/data/${PROGRAM}/latest"
+
+# Chunks que el navegador nunca pidió (webpack/vite/Next/Remix) + sus source maps — con correa (gf_run.py)
+if [[ "${GETFRONTEND_ENABLED:-true}" == "true" ]]; then
+  echo
+  echo "[*] getfrontend: chunks no cargados y source maps (1 hilo, ${REQ_DELAY_MS:-400} ms/petición)"
+  python3 /app/scripts/gf_run.py "$OUT" --ua "$UA" --ident-header "$IDENT_HEADER" --handle "$HANDLE" \
+    --delay-ms "${REQ_DELAY_MS:-400}" --max-requests "${GF_MAX_REQUESTS:-400}" || true
+fi
 
 echo
 echo "[+] Recon complete. Checking for source maps..."
@@ -212,7 +229,11 @@ python3 /app/scripts/js_analyze.py "$OUT" \
   --jsluice /usr/local/bin/jsluice
 
 echo
-if [ "${NUCLEI_ENABLED:-true}" != "true" ]; then
+echo "[+] Lo escondido (flags, roles, GraphQL, rutas, config, hosts) + endpoints-top..."
+python3 /app/scripts/js_hidden.py "$OUT" || true
+
+echo
+if [ "${NUCLEI_ENABLED:-false}" != "true" ]; then
   echo "[*] Nuclei desactivado (NUCLEI_ENABLED=${NUCLEI_ENABLED}) — el programa no permite escaneo automatizado"
   mkdir -p "$OUT/findings/nuclei"; : > "$OUT/findings/nuclei/results.txt"
 else
@@ -245,5 +266,10 @@ echo "    Secrets:    data/${PROGRAM}/${TS}/findings/secrets.txt"
 echo "    Nuclei:     data/${PROGRAM}/${TS}/findings/nuclei/ ($NUCLEI_COUNT hits)"
 echo "    JS raw:     data/${PROGRAM}/${TS}/findings/js-raw/"
 echo "    JS analysis: data/${PROGRAM}/${TS}/findings/js-analysis/"
+echo "    Escondido:  data/${PROGRAM}/${TS}/findings/hidden/RESUMEN.md"
+echo "    Top:        data/${PROGRAM}/${TS}/findings/endpoints-top.txt"
+echo "    API real:   data/${PROGRAM}/${TS}/findings/api-calls.txt"
+echo "    Caché/WCD:  data/${PROGRAM}/${TS}/findings/cache-map.txt"
+echo "    Rutas app:  data/${PROGRAM}/${TS}/findings/app-routes.txt"
 echo
 echo "    Share results with Mimir for hypothesis generation."

@@ -7,7 +7,7 @@ through analysis tools and built-in sink/pattern detection.
 
 Usage:
   python js_analyze.py <vigia-output-dir>
-  python js_analyze.py data/moneytree/latest
+  python js_analyze.py data/<program>/latest
 
 Tools used (optional — skipped if not installed):
   - jsbeautifier (pip install jsbeautifier) — desminify JS
@@ -176,6 +176,21 @@ def main():
         sys.exit(1)
 
     js_files = sorted(js_raw.glob("*.js"))
+    # F11 (16-nov): solo el JS del TARGET (in-scope, su CDN y fuentes de sourcemaps que no sean librerías) para
+    # xnLinkFinder, SecretFinder y JSLuice. Antes leían todo (Google, TikTok, Heap…) → 8.590 "parámetros" de ruido,
+    # y SecretFinder/JSLuice gastaban su cupo de 50 en terceros por ir en orden alfabético.
+    target_files = js_files
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from crawl_extract import Scope
+        from js_hidden import file_is_target, first_party_cdn_hosts
+        inc, exc = out / "include.txt", out / "exclude.txt"
+        _scope = Scope(str(inc) if inc.exists() else "", str(exc) if exc.exists() else "", str(out / "roots.txt"))
+        _cdn = first_party_cdn_hosts(out, _scope)
+        target_files = [f for f in js_files if file_is_target(f.name, _scope, _cdn)]
+        print(f"[*] JS del target: {len(target_files)} de {len(js_files)} (el resto son terceros/librerías)")
+    except Exception as e:
+        print(f"[*] Filtro de JS del target no disponible ({e}); se usan todos")
     print(f"[*] JS Deep Analysis — {len(js_files)} files in {js_raw}")
     print(f"    Output: {js_analysis}")
 
@@ -251,28 +266,37 @@ def main():
     sinks = [f for f in all_findings if f["category"] in ("XSS_SINK", "POSTMESSAGE", "PROTO_POLLUTION", "REDIRECT_SINK", "FETCH_SINK")]
     print(f"    -> {len(sinks)} dangerous sinks found")
 
-    # ---- Step 3: LinkFinder ----
-    print("\n[3/6] LinkFinder...")
-    lf_path = args.linkfinder or shutil.which("linkfinder") or ""
-    if not lf_path:
-        # Try common locations
-        for p in ["/opt/LinkFinder/linkfinder.py",
-                  os.path.expanduser("~/LinkFinder/linkfinder.py"),
-                  os.path.expanduser("~/tools/LinkFinder/linkfinder.py")]:
-            if os.path.exists(p):
-                lf_path = p
-                break
-    if lf_path and os.path.exists(lf_path):
-        lf_results = []
-        for jsf in js_files[:50]:  # Cap to avoid timeout
-            out_text = run_tool("LinkFinder", ["python3", lf_path, "-i", str(jsf), "-o", "cli"])
-            if out_text:
-                lf_results.append(f"# {jsf.name}\n{out_text}")
-        if lf_results:
-            (js_analysis / "linkfinder.txt").write_text("\n".join(lf_results))
-            print(f"    -> results written to linkfinder.txt")
+    # ---- Step 3: xnLinkFinder (sustituye a LinkFinder: endpoints + parámetros, toda la carpeta) ----
+    print("\n[3/6] xnLinkFinder...")
+    xnl = shutil.which("xnLinkFinder") or ""
+    if xnl:
+        roots_f = out / "roots.txt"
+        scope_f = js_analysis / "xnl-scope.txt"
+        doms = [l.strip().lstrip("*.") for l in roots_f.read_text().splitlines() if l.strip()] if roots_f.exists() else []
+        scope_f.write_text("\n".join(doms or ["example.invalid"]))
+        xin = js_analysis / "_xnl_input"
+        shutil.rmtree(xin, ignore_errors=True)
+        xin.mkdir(parents=True, exist_ok=True)
+        for f in target_files:
+            try:
+                os.symlink(f.resolve(), xin / f.name)
+            except Exception:
+                shutil.copyfile(f, xin / f.name)
+        try:
+            # OJO: sin terminal, xnLinkFinder ignora -i y lee la entrada estándar → la carpeta va por stdin
+            subprocess.run([xnl, "-sf", str(scope_f), "-o", str(js_analysis / "xnlinkfinder.txt"),
+                            "-op", str(js_analysis / "xnlinkfinder-params.txt"), "-ow", "-nb"],
+                           input=str(xin.resolve()) + "\n", capture_output=True, text=True, timeout=1200)
+            n_l = len((js_analysis / "xnlinkfinder.txt").read_text().splitlines()) if (js_analysis / "xnlinkfinder.txt").exists() else 0
+            n_p = len((js_analysis / "xnlinkfinder-params.txt").read_text().splitlines()) if (js_analysis / "xnlinkfinder-params.txt").exists() else 0
+            print(f"    -> {n_l} enlaces · {n_p} parámetros (xnlinkfinder.txt / xnlinkfinder-params.txt)")
+        except subprocess.TimeoutExpired:
+            print("    xnLinkFinder timed out — skipping")
+        except Exception as e:
+            print(f"    xnLinkFinder error: {e}")
+        shutil.rmtree(xin, ignore_errors=True)
     else:
-        print("    LinkFinder not found — skipping")
+        print("    xnLinkFinder not found — skipping")
 
     # ---- Step 4: SecretFinder ----
     print("\n[4/6] SecretFinder...")
@@ -286,7 +310,7 @@ def main():
                 break
     if sf_path and os.path.exists(sf_path):
         sf_results = []
-        for jsf in js_files[:50]:
+        for jsf in target_files[:120]:
             out_text = run_tool("SecretFinder", ["python3", sf_path, "-i", str(jsf), "-o", "cli"])
             if out_text:
                 sf_results.append(f"# {jsf.name}\n{out_text}")
@@ -320,7 +344,7 @@ def main():
 
     jsluice_results = {"urls": [], "secrets": []}
     if jsluice_path and jsluice_path != "docker" and os.path.exists(jsluice_path):
-        for jsf in js_files[:50]:
+        for jsf in target_files[:120]:
             for mode in ["urls", "secrets"]:
                 out_text = run_tool(f"JSLuice-{mode}", [jsluice_path, mode, str(jsf)])
                 if out_text:
